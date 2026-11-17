@@ -5,7 +5,7 @@ import { deleteImage } from './images';
 export function watchMemories(roomId: string, cb: (m: Memory[]) => void, onError: (e: Error) => void) {
   return firestore().collection(`rooms/${roomId}/memories`).orderBy('date', 'desc').onSnapshot(
     snap => cb(snap.docs.map(d => {
-      const x = d.data({ serverTimestamps: 'estimate' }) as any;
+      const x = d.data() as any;
       return { id: d.id, ...x, createdAtMs: x.createdAt ? x.createdAt.toMillis() : null } as Memory;
     })),
     e => onError(e),

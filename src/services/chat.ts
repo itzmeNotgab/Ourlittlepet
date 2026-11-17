@@ -11,7 +11,7 @@ export function watchMessages(roomId: string, cb: (m: Message[]) => void, onErro
       snap => {
         cb(
           snap.docs.map(d => {
-            const data = d.data({ serverTimestamps: 'estimate' }) as any;
+            const data = d.data() as any;
             return {
               id: d.id, from: data.from, text: data.text ?? '', imageUrl: data.imageUrl,
               createdAtMs: data.createdAt ? data.createdAt.toMillis() : null,
