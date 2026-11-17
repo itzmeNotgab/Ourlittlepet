@@ -1,0 +1,16 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "roomMembers": { ".read": false, ".write": false },
+    "presence": {
+      "$roomId": {
+        ".read": "auth != null && root.child('roomMembers').child($roomId).child(auth.uid).val() === true",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid && root.child('roomMembers').child($roomId).child(auth.uid).val() === true",
+          ".validate": "newData.hasChildren(['state', 'lastChanged']) && newData.child('state').isString() && (newData.child('state').val() === 'online' || newData.child('state').val() === 'away' || newData.child('state').val() === 'offline')"
+        }
+      }
+    }
+  }
+}

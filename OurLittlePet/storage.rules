@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function roomDoc(roomId) { return firestore.get(/databases/(default)/documents/rooms/$(roomId)).data; }
+    function isMember(roomId) { return request.auth != null && request.auth.uid in roomDoc(roomId).members; }
+    function isFormer(roomId) { return request.auth != null && request.auth.uid in roomDoc(roomId).get('formerMembers', []); }
+
+    match /rooms/{roomId}/{kind}/{file} {
+      allow read: if isMember(roomId) || isFormer(roomId);
+      allow create: if isMember(roomId)
+        && (kind == 'memories' || kind == 'chat')
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.metadata.owner == request.auth.uid;
+      allow update: if false;
+      allow delete: if isMember(roomId) && resource.metadata.owner == request.auth.uid;
+    }
+  }
+}

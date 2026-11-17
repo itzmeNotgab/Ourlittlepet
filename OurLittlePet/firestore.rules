@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function roomData(roomId) { return get(/databases/$(database)/documents/rooms/$(roomId)).data; }
+    function isMember(roomId) { return signedIn() && request.auth.uid in roomData(roomId).members; }
+    function isActiveMember(roomId) { return isMember(roomId) && roomData(roomId).status == 'active'; }
+    function isFormerMember(roomId) { return signedIn() && request.auth.uid in roomData(roomId).get('formerMembers', []); }
+    function userData(uid) { return get(/databases/$(database)/documents/users/$(uid)).data; }
+    function isPartnerOf(uid) {
+      return signedIn()
+        && userData(request.auth.uid).get('roomId', null) != null
+        && userData(request.auth.uid).get('roomId', null) == userData(uid).get('roomId', null);
+    }
+
+    // Profiles: own doc, or your paired partner's. roomId/pending fields are server-only.
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isPartnerOf(uid));
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['displayName', 'photoURL', 'createdAt', 'prefs'])
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 80;
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'prefs'])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 80;
+      allow delete: if false;
+
+      // FCM tokens: only the owner.
+      match /private/{docId} {
+        allow read, write: if signedIn() && request.auth.uid == uid;
+      }
+    }
+
+    // Pairing codes, rate limits: server (Admin SDK) only.
+    match /pairingCodes/{id} { allow read, write: if false; }
+    match /rateLimits/{id} { allow read, write: if false; }
+
+    match /rooms/{roomId} {
+      // Room doc itself is written only by Cloud Functions.
+      allow read: if signedIn() && (
+        request.auth.uid in resource.data.members ||
+        request.auth.uid in resource.data.get('formerMembers', []));
+      allow write: if false;
+
+      // Shared state: read by members, written only by Cloud Functions.
+      match /pet/{docId}       { allow read: if isMember(roomId); allow write: if false; }
+      match /bedroom/{docId}   { allow read: if isMember(roomId); allow write: if false; }
+      match /inventory/{docId} { allow read: if isMember(roomId); allow write: if false; }
+      match /activities/{id}   { allow read: if isMember(roomId); allow write: if false; }
+      match /gameLimits/{id}   { allow read, write: if false; }
+
+      match /messages/{msgId} {
+        allow read: if isMember(roomId) || isFormerMember(roomId);
+        allow create: if isActiveMember(roomId)
+          && request.resource.data.keys().hasOnly(['from', 'text', 'imageUrl', 'createdAt'])
+          && request.resource.data.from == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.text is string
+          && request.resource.data.text.size() <= 2000
+          && (request.resource.data.text.size() > 0 || request.resource.data.get('imageUrl', null) is string);
+        allow update, delete: if false;
+      }
+
+      match /readState/{uid} {
+        allow read: if isMember(roomId);
+        allow write: if isActiveMember(roomId) && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['lastRead'])
+          && request.resource.data.lastRead == request.time;
+      }
+
+      match /memories/{memId} {
+        allow read: if isMember(roomId) || isFormerMember(roomId);
+        allow create: if isActiveMember(roomId)
+          && request.resource.data.keys().hasOnly(['authorId', 'authorName', 'imageUrl', 'storagePath', 'caption', 'note', 'date', 'createdAt'])
+          && request.resource.data.authorId == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.caption is string && request.resource.data.caption.size() <= 200
+          && request.resource.data.note is string && request.resource.data.note.size() <= 2000
+          && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && request.resource.data.storagePath.matches('^rooms/' + roomId + '/memories/.*');
+        allow update: if isActiveMember(roomId) && resource.data.authorId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['caption', 'note', 'date'])
+          && request.resource.data.caption.size() <= 200
+          && request.resource.data.note.size() <= 2000
+          && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+        allow delete: if isActiveMember(roomId) && resource.data.authorId == request.auth.uid;
+      }
+    }
+  }
+}
