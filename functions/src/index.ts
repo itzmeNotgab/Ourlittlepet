@@ -149,7 +149,9 @@ export const requestJoin = onCall(async req => {
   });
 
   if ('ok' in result) {
-    await notify(result.creator, 'pairing', 'Someone wants to join your world 💞', `${result.name} entered your code. Open the app to approve.`);
+    if (result.creator) {
+      await notify(result.creator, 'pairing', 'Someone wants to join your world 💞', `${result.name} entered your code. Open the app to approve.`);
+    }
     return { ok: true };
   }
   switch (result.err) {
